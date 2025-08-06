@@ -29,7 +29,7 @@ fi
 
 # Set environment variables
 export DEBIAN_FRONTEND=noninteractive
-export CUDA_VERSION=12.1.0
+export CUDA_VERSION=12.4
 
 # Update system
 echo "Updating system packages..."
@@ -37,40 +37,6 @@ apt update && apt upgrade -y
 
 # Install essential dependencies first
 echo "Installing essential dependencies..."
-apt install -y \
-    wget \
-    curl \
-    git \
-    build-essential \
-    software-properties-common \
-    ca-certificates \
-    gnupg \
-    lsb-release
-
-# Install CUDA (for Ubuntu 22.04/24.04)
-echo "========================================="
-echo "Installing NVIDIA CUDA Toolkit..."
-echo "========================================="
-
-# Add NVIDIA package repositories
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
-dpkg -i cuda-keyring_1.1-1_all.deb
-rm cuda-keyring_1.1-1_all.deb
-
-# Update apt repository
-apt update
-
-# Install CUDA toolkit (12.1)
-apt install -y cuda-toolkit-12-1
-
-# Install cuDNN
-apt install -y libcudnn8 libcudnn8-dev
-
-# Set CUDA environment variables
-echo 'export PATH=/usr/local/cuda-12.1/bin:$PATH' >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
-export PATH=/usr/local/cuda-12.1/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH
 
 # Install Python 3.11 and system dependencies
 echo "Installing Python and system dependencies..."
@@ -118,9 +84,10 @@ fi
 
 cd ComfyUI
 
-# Install PyTorch with CUDA support
-echo "Installing PyTorch with CUDA support..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Install PyTorch with CUDA 12.8 support
+echo "Installing PyTorch with CUDA 12.8 support (using nightly for RTX 5090)..."
+# Use PyTorch nightly for CUDA 12.8 and RTX 5090 support
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
 
 # Install ComfyUI requirements
 echo "Installing ComfyUI requirements..."
