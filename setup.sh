@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# ComfyUI Setup Script for RunPod
-# This script installs ComfyUI with FLUX and JuggernautXL models
+# ComfyUI Setup Script for RunPod (Ubuntu:latest base)
+# This script installs CUDA, ComfyUI with FLUX and JuggernautXL models
 # 
 # Required Environment Variables (set in RunPod template):
 # - HF_TOKEN: Your HuggingFace API token
@@ -11,6 +11,7 @@ set -e  # Exit on error
 
 echo "========================================="
 echo "Starting ComfyUI Setup for RunPod"
+echo "Ubuntu:latest base with CUDA installation"
 echo "========================================="
 
 # Check for required environment variables
@@ -28,17 +29,58 @@ fi
 
 # Set environment variables
 export DEBIAN_FRONTEND=noninteractive
+export CUDA_VERSION=12.1.0
 
-# Update system and install dependencies
-echo "Installing system dependencies..."
+# Update system
+echo "Updating system packages..."
+apt update && apt upgrade -y
+
+# Install essential dependencies first
+echo "Installing essential dependencies..."
+apt install -y \
+    wget \
+    curl \
+    git \
+    build-essential \
+    software-properties-common \
+    ca-certificates \
+    gnupg \
+    lsb-release
+
+# Install CUDA (for Ubuntu 22.04/24.04)
+echo "========================================="
+echo "Installing NVIDIA CUDA Toolkit..."
+echo "========================================="
+
+# Add NVIDIA package repositories
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+dpkg -i cuda-keyring_1.1-1_all.deb
+rm cuda-keyring_1.1-1_all.deb
+
+# Update apt repository
+apt update
+
+# Install CUDA toolkit (12.1)
+apt install -y cuda-toolkit-12-1
+
+# Install cuDNN
+apt install -y libcudnn8 libcudnn8-dev
+
+# Set CUDA environment variables
+echo 'export PATH=/usr/local/cuda-12.1/bin:$PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+export PATH=/usr/local/cuda-12.1/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH
+
+# Install Python 3.11 and system dependencies
+echo "Installing Python and system dependencies..."
+add-apt-repository ppa:deadsnakes/ppa -y
 apt update
 apt install -y \
     python3.11 \
     python3.11-venv \
+    python3.11-dev \
     python3-pip \
-    git \
-    wget \
-    curl \
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
@@ -46,12 +88,18 @@ apt install -y \
     libxrender-dev \
     libgomp1 \
     libgoogle-perftools4 \
-    libtcmalloc-minimal4
+    libtcmalloc-minimal4 \
+    libcairo2-dev \
+    pkg-config \
+    python3-dev
 
 # Create Python symlink if it doesn't exist
 if [ ! -f /usr/bin/python ]; then
     ln -s /usr/bin/python3.11 /usr/bin/python
 fi
+
+# Install pip for Python 3.11
+curl https://bootstrap.pypa.io/get-pip.py | python3.11
 
 # Upgrade pip
 echo "Upgrading pip..."
@@ -70,11 +118,16 @@ fi
 
 cd ComfyUI
 
-# Install Python requirements
-echo "Installing PyTorch and requirements..."
+# Install PyTorch with CUDA support
+echo "Installing PyTorch with CUDA support..."
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Install ComfyUI requirements
+echo "Installing ComfyUI requirements..."
 pip install -r requirements.txt
-pip install huggingface-hub
+
+# Install additional required packages
+pip install huggingface-hub accelerate xformers
 
 # Install ComfyUI-Manager
 echo "Installing ComfyUI-Manager..."
@@ -106,7 +159,7 @@ echo "========================================="
 
 # Download FLUX.1-Krea model
 if [ ! -f "models/unet/flux1-krea-dev.safetensors" ]; then
-    echo "Downloading FLUX.1-Krea model..."
+    echo "Downloading FLUX.1-Krea model (this is large, ~24GB)..."
     huggingface-cli download black-forest-labs/FLUX.1-Krea-dev flux1-krea-dev.safetensors \
         --token ${HF_TOKEN} \
         --local-dir models/unet \
@@ -128,7 +181,7 @@ fi
 
 # Download T5 XXL encoder
 if [ ! -f "models/clip/t5xxl_fp16.safetensors" ]; then
-    echo "Downloading T5 XXL encoder..."
+    echo "Downloading T5 XXL encoder (~9GB)..."
     huggingface-cli download comfyanonymous/flux_text_encoders t5xxl_fp16.safetensors \
         --token ${HF_TOKEN} \
         --local-dir models/clip \
@@ -161,8 +214,8 @@ fi
 
 # Download JuggernautXL from CivitAI
 if [ ! -f "models/checkpoints/juggernautXL_v11.safetensors" ]; then
-    echo "Downloading JuggernautXL..."
-    wget -O models/checkpoints/juggernautXL_v11.safetensors \
+    echo "Downloading JuggernautXL (~6.5GB)..."
+    wget --progress=bar:force -O models/checkpoints/juggernautXL_v11.safetensors \
         "https://civitai.com/api/download/models/782002?type=Model&format=SafeTensor&size=full&fp=fp16&token=${CIVITAI_TOKEN}" \
         || echo "Warning: JuggernautXL download failed. You may need to update the model version ID."
 else
@@ -173,9 +226,30 @@ echo "========================================="
 echo "Model downloads complete!"
 echo "========================================="
 
+# Install SSH server for remote access
+echo "Setting up SSH server..."
+apt install -y openssh-server
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+if [ ! -z "$PUBLIC_KEY" ]; then
+    echo "$PUBLIC_KEY" >> ~/.ssh/authorized_keys
+    chmod 600 ~/.ssh/authorized_keys
+fi
+service ssh start
+
 # Install Jupyter Lab for RunPod
 echo "Installing JupyterLab..."
 pip install jupyterlab jupyterlab_widgets ipykernel ipywidgets
+
+# Verify CUDA installation
+echo "========================================="
+echo "Verifying CUDA installation..."
+if command -v nvidia-smi &> /dev/null; then
+    nvidia-smi
+else
+    echo "Warning: nvidia-smi not found. GPU may not be properly configured."
+fi
+echo "========================================="
 
 # Start ComfyUI
 echo "========================================="
